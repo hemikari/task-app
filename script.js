@@ -59,25 +59,38 @@ function renderProjects() {
   el.innerHTML = sorted.map(p => renderProject(p)).join('');
 }
 
+function renderDeadlines(item, pidOrTid, type) {
+  const sdl = daysLeft(item.softDeadline);
+  const fdl = daysLeft(item.deadline);
+  const sdlClass = (!item.done && sdl !== null && sdl <= 3) ? 'near' : '';
+  const fdlClass = (!item.done && fdl !== null && fdl <= 3) ? 'near' : '';
+  const editSoft = type === 'project'
+    ? `onclick="editField('${pidOrTid}',null,'softDeadline',this)"`
+    : `onclick="editField('${pidOrTid.pid}','${pidOrTid.tid}','softDeadline',this)"`;
+  const editFinal = type === 'project'
+    ? `onclick="editField('${pidOrTid}',null,'deadline',this)"`
+    : `onclick="editField('${pidOrTid.pid}','${pidOrTid.tid}','deadline',this)"`;
+  const soft = `<span class="dl-soft ${sdlClass}" ${editSoft} title="一旦締め切り">${item.softDeadline ? '一旦 ' + fmtDate(item.softDeadline) : '<span class="edit-hint">一旦</span>'}</span>`;
+  const final = `<span class="dl-final ${fdlClass}" ${editFinal} title="最終締め切り">${item.deadline ? '最終 ' + fmtDate(item.deadline) : '<span class="edit-hint">最終</span>'}</span>`;
+  return `<span class="dl-wrap">${soft}${final}</span>`;
+}
+
 function renderProject(p) {
   const tasks = p.tasks || [];
   const done = tasks.filter(t => t.done).length;
   const total = tasks.length;
   const pct = total ? Math.round(done / total * 100) : 0;
-  const dl = daysLeft(p.deadline);
-  const dlClass = (dl !== null && dl <= 3) ? 'near' : '';
-  const dlText = p.deadline ? `${fmtDate(p.deadline)} (${deadlineLabel(p.deadline)})` : '';
 
   const taskRows = tasks
     .sort((a,b) => {
       if (a.done !== b.done) return a.done ? 1 : -1;
-      if (!a.deadline) return 1;
-      if (!b.deadline) return -1;
-      return a.deadline < b.deadline ? -1 : 1;
+      const aDate = a.softDeadline || a.deadline;
+      const bDate = b.softDeadline || b.deadline;
+      if (!aDate) return 1;
+      if (!bDate) return -1;
+      return aDate < bDate ? -1 : 1;
     })
     .map(t => {
-      const tdl = daysLeft(t.deadline);
-      const tdlClass = (!t.done && tdl !== null && tdl <= 2) ? 'near' : '';
       const isActive = activeTimer && activeTimer.tid === t.id;
       const elapsed = timerMap[t.id] || 0;
       const hasTime = elapsed > 0;
@@ -92,19 +105,23 @@ function renderProject(p) {
       return `
       <li class="task-row" data-tid="${t.id}" data-pid="${p.id}">
         <input type="checkbox" class="task-check" ${t.done ? 'checked' : ''} onchange="toggleTask('${p.id}','${t.id}',this.checked)" />
-        <span class="task-name${t.done ? ' done' : ''}" onclick="editTaskName('${p.id}','${t.id}',this)">${esc(t.name)}</span>
+        <span class="task-name${t.done ? ' done' : ''}" onclick="editField('${p.id}','${t.id}','name',this)">${esc(t.name)}</span>
         ${timerDisplay}
-        <span class="task-deadline ${tdlClass}" onclick="editTaskDeadline('${p.id}','${t.id}',this)" title="締め切りを編集">${t.deadline ? fmtDate(t.deadline) : '<span class="edit-hint">日付</span>'}</span>
+        ${renderDeadlines(t, {pid: p.id, tid: t.id}, 'task')}
         ${timerBtn}
         <button class="task-del" onclick="deleteTask('${p.id}','${t.id}')" title="削除">×</button>
       </li>`;
     }).join('');
 
+  const fdl = daysLeft(p.deadline);
+  const sdl = daysLeft(p.softDeadline);
+  const headerDlClass = (fdl !== null && fdl <= 3) ? 'near' : (sdl !== null && sdl <= 3) ? 'near' : '';
+
   return `
   <div class="project-block" id="pb-${p.id}">
     <div class="project-header">
-      <span class="project-title" onclick="editProjectName('${p.id}',this)">${esc(p.name)}</span>
-      <span class="project-deadline ${dlClass}" onclick="editProjectDeadline('${p.id}',this)" title="締め切りを編集">${dlText || '<span class="edit-hint">締め切り</span>'}</span>
+      <span class="project-title" onclick="editField('${p.id}',null,'name',this)">${esc(p.name)}</span>
+      ${renderDeadlines(p, p.id, 'project')}
       <div class="project-actions">
         <button class="icon-btn del" onclick="deleteProject('${p.id}')" title="削除">Delete</button>
       </div>
@@ -157,9 +174,12 @@ function renderUpcoming() {
   const items = [];
   data.projects.forEach(p => {
     (p.tasks || []).forEach(t => {
-      if (!t.done && t.deadline) items.push({ name: t.name, proj: p.name, deadline: t.deadline });
+      if (t.done) return;
+      if (t.softDeadline) items.push({ name: t.name, proj: p.name, deadline: t.softDeadline, label: '一旦' });
+      if (t.deadline) items.push({ name: t.name, proj: p.name, deadline: t.deadline, label: '最終' });
     });
-    if (p.deadline) items.push({ name: p.name, proj: '— project', deadline: p.deadline, isProject: true });
+    if (p.softDeadline) items.push({ name: p.name, proj: '— project', deadline: p.softDeadline, label: '一旦' });
+    if (p.deadline) items.push({ name: p.name, proj: '— project', deadline: p.deadline, label: '最終' });
   });
   items.sort((a,b) => a.deadline < b.deadline ? -1 : 1);
   const shown = items.slice(0, 8);
@@ -174,7 +194,7 @@ function renderUpcoming() {
       </div>
       <div class="upcoming-info">
         <div class="upcoming-name">${esc(it.name)}</div>
-        <div class="upcoming-proj">${esc(it.proj)}</div>
+        <div class="upcoming-proj">${it.label ? `<span class="dl-label-${it.label === '一旦' ? 'soft' : 'final'}">${it.label}</span> ` : ''}${esc(it.proj)}</div>
       </div>
     </li>`;
   }).join('');
@@ -282,78 +302,39 @@ function pickToday() {
 }
 
 // ── INLINE EDIT ───────────────────────────────────────
-function editProjectName(pid, el) {
+function editField(pid, tid, field, el) {
   const proj = data.projects.find(p => p.id === pid);
   if (!proj) return;
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.value = proj.name;
-  input.className = 'inline-edit';
-  el.replaceWith(input);
-  input.focus(); input.select();
-  const commit = () => {
-    const val = input.value.trim();
-    if (val) proj.name = val;
-    save(); render();
-  };
-  input.addEventListener('blur', commit);
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.value = proj.name; input.blur(); } });
-}
+  const target = tid ? proj.tasks.find(t => t.id === tid) : proj;
+  if (!target) return;
 
-function editProjectDeadline(pid, el) {
-  const proj = data.projects.find(p => p.id === pid);
-  if (!proj) return;
+  const isDate = field === 'deadline' || field === 'softDeadline';
   const input = document.createElement('input');
-  input.type = 'date';
-  input.value = proj.deadline || '';
-  input.className = 'inline-edit inline-edit-date';
+  input.type = isDate ? 'date' : 'text';
+  input.value = target[field] || '';
+  input.className = isDate ? 'inline-edit inline-edit-date' : 'inline-edit';
   el.replaceWith(input);
   input.focus();
-  const commit = () => {
-    proj.deadline = input.value || null;
-    save(); render();
-  };
-  input.addEventListener('blur', commit);
-  input.addEventListener('change', () => input.blur());
-  input.addEventListener('keydown', e => { if (e.key === 'Escape') input.blur(); });
-}
+  if (!isDate) input.select();
 
-function editTaskName(pid, tid, el) {
-  const proj = data.projects.find(p => p.id === pid);
-  const task = proj?.tasks.find(t => t.id === tid);
-  if (!task) return;
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.value = task.name;
-  input.className = 'inline-edit';
-  el.replaceWith(input);
-  input.focus(); input.select();
   const commit = () => {
-    const val = input.value.trim();
-    if (val) task.name = val;
+    if (isDate) {
+      target[field] = input.value || null;
+    } else {
+      const val = input.value.trim();
+      if (val) target[field] = val;
+    }
     save(); render();
   };
   input.addEventListener('blur', commit);
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.value = task.name; input.blur(); } });
-}
-
-function editTaskDeadline(pid, tid, el) {
-  const proj = data.projects.find(p => p.id === pid);
-  const task = proj?.tasks.find(t => t.id === tid);
-  if (!task) return;
-  const input = document.createElement('input');
-  input.type = 'date';
-  input.value = task.deadline || '';
-  input.className = 'inline-edit inline-edit-date';
-  el.replaceWith(input);
-  input.focus();
-  const commit = () => {
-    task.deadline = input.value || null;
-    save(); render();
-  };
-  input.addEventListener('blur', commit);
-  input.addEventListener('change', () => input.blur());
-  input.addEventListener('keydown', e => { if (e.key === 'Escape') input.blur(); });
+  if (isDate) {
+    input.addEventListener('change', () => input.blur());
+  } else {
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') input.blur();
+      if (e.key === 'Escape') { input.value = target[field] || ''; input.blur(); }
+    });
+  }
 }
 
 // ── TIMER ─────────────────────────────────────────────
