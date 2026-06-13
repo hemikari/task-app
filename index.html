@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TASK</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>Task</h1>
+  <span class="date" id="header-date"></span>
+  <nav>
+    <button class="active" data-view="projects" onclick="switchView('projects',this)">Projects</button>
+    <button data-view="archive" onclick="switchView('archive',this)">Archive</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ── LEFT ── -->
+  <div class="col-main">
+
+    <!-- PROJECTS VIEW -->
+    <div id="view-projects" class="view active">
+      <div class="section-label">Projects</div>
+      <div id="projects-list"></div>
+
+      <div class="add-project">
+        <h3>+ New project</h3>
+        <div class="add-project-row">
+          <input type="text" id="new-proj-name" placeholder="プロジェクト名" />
+          <input type="date" id="new-proj-date" />
+          <button onclick="addProject()">Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ARCHIVE VIEW -->
+    <div id="view-archive" class="view">
+      <div class="section-label">Archive — 完了タスク</div>
+      <div id="archive-list"></div>
+    </div>
+
+  </div>
+
+  <!-- ── RIGHT ── -->
+  <div class="col-side">
+    <div class="now-working-section">
+      <div class="section-label">今作業中</div>
+      <div id="now-working"><span class="now-working-empty">作業中のタスクなし</span></div>
+    </div>
+
+    <div class="today-section">
+      <div class="section-label">今日やること</div>
+      <ul class="today-items" id="today-list"></ul>
+      <button class="pick-btn" onclick="pickToday()">Pick 3 tasks</button>
+    </div>
+
+    <div>
+      <div class="section-label">Upcoming deadlines</div>
+      <ul class="upcoming-list" id="upcoming-list"></ul>
+    </div>
+  </div>
+</main>
+
+<script src="script.js"></script>
+</body>
+</html>
