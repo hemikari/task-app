@@ -1,21 +1,23 @@
+import { auth, db, loginWithGoogle, logout, onAuthStateChanged, loadUserData, saveUserData }
+  from './firebase.js';
+
 // ── DATA ──────────────────────────────────────────────
-let data = JSON.parse(localStorage.getItem('taskapp') || 'null') || { projects: [], archive: [] };
+let data = { projects: [], archive: [] };
 let todayPicks = JSON.parse(localStorage.getItem('taskapp-today') || '[]');
+let currentUid = null;
 
 // ── TIMER STATE ───────────────────────────────────────
-// timerMap: { [tid]: elapsedSeconds }
 const timerMap = {};
-let activeTimer = null; // { pid, tid, startedAt, interval }
+let activeTimer = null;
 
-function save() {
-  localStorage.setItem('taskapp', JSON.stringify(data));
+// ── SAVE ──────────────────────────────────────────────
+async function save() {
   localStorage.setItem('taskapp-today', JSON.stringify(todayPicks));
+  if (currentUid) await saveUserData(currentUid, data);
 }
 
 // ── DATE HELPERS ──────────────────────────────────────
-function today() {
-  return new Date().toISOString().slice(0,10);
-}
+function today() { return new Date().toISOString().slice(0,10); }
 function daysLeft(dateStr) {
   if (!dateStr) return null;
   const now = new Date(); now.setHours(0,0,0,0);
@@ -52,9 +54,11 @@ function renderProjects() {
     return;
   }
   const sorted = [...data.projects].sort((a,b) => {
-    if (!a.deadline) return 1;
-    if (!b.deadline) return -1;
-    return a.deadline < b.deadline ? -1 : 1;
+    const aDate = a.softDeadline || a.deadline;
+    const bDate = b.softDeadline || b.deadline;
+    if (!aDate) return 1;
+    if (!bDate) return -1;
+    return aDate < bDate ? -1 : 1;
   });
   el.innerHTML = sorted.map(p => renderProject(p)).join('');
 }
@@ -113,10 +117,6 @@ function renderProject(p) {
       </li>`;
     }).join('');
 
-  const fdl = daysLeft(p.deadline);
-  const sdl = daysLeft(p.softDeadline);
-  const headerDlClass = (fdl !== null && fdl <= 3) ? 'near' : (sdl !== null && sdl <= 3) ? 'near' : '';
-
   return `
   <div class="project-block" id="pb-${p.id}">
     <div class="project-header">
@@ -148,8 +148,6 @@ function renderToday() {
     const task = proj.tasks.find(t => t.id === pick.tid);
     return task && !task.done;
   });
-  save();
-
   if (!todayPicks.length) {
     el.innerHTML = '<li class="today-empty">まだ選択されていません。</li>';
     return;
@@ -222,7 +220,7 @@ function renderArchive() {
 }
 
 // ── ACTIONS ───────────────────────────────────────────
-function addProject() {
+window.addProject = function() {
   const name = document.getElementById('new-proj-name').value.trim();
   if (!name) return;
   const deadline = document.getElementById('new-proj-date').value || null;
@@ -230,15 +228,15 @@ function addProject() {
   document.getElementById('new-proj-name').value = '';
   document.getElementById('new-proj-date').value = '';
   save(); render();
-}
+};
 
-function deleteProject(pid) {
+window.deleteProject = function(pid) {
   if (!confirm('このプロジェクトを削除しますか？')) return;
   data.projects = data.projects.filter(p => p.id !== pid);
   save(); render();
-}
+};
 
-function addTask(pid) {
+window.addTask = function(pid) {
   const nameEl = document.getElementById(`ti-${pid}`);
   const dateEl = document.getElementById(`td-${pid}`);
   const name = nameEl.value.trim();
@@ -249,16 +247,16 @@ function addTask(pid) {
   nameEl.value = '';
   dateEl.value = '';
   save(); render();
-}
+};
 
-function deleteTask(pid, tid) {
+window.deleteTask = function(pid, tid) {
   const proj = data.projects.find(p => p.id === pid);
   if (!proj) return;
   proj.tasks = proj.tasks.filter(t => t.id !== tid);
   save(); render();
-}
+};
 
-function toggleTask(pid, tid, checked) {
+window.toggleTask = function(pid, tid, checked) {
   const proj = data.projects.find(p => p.id === pid);
   if (!proj) return;
   const task = proj.tasks.find(t => t.id === tid);
@@ -270,24 +268,22 @@ function toggleTask(pid, tid, checked) {
     todayPicks = todayPicks.filter(p => p.tid !== tid);
   }
   save(); render();
-}
+};
 
-function restoreTask(id) {
+window.restoreTask = function(id) {
   const a = data.archive.find(x => x.id === id);
   if (!a) return;
   const proj = data.projects.find(p => p.id === a.pid);
-  if (proj) {
-    proj.tasks.push({ id: uid(), name: a.name, deadline: null, done: false });
-  }
+  if (proj) proj.tasks.push({ id: uid(), name: a.name, deadline: null, done: false });
   data.archive = data.archive.filter(x => x.id !== id);
   save(); render();
-}
+};
 
-function pickToday() {
+window.pickToday = function() {
   const available = [];
   data.projects.forEach(p => {
     (p.tasks || []).filter(t => !t.done).forEach(t => {
-      available.push({ pid: p.id, tid: t.id, name: t.name, deadline: t.deadline });
+      available.push({ pid: p.id, tid: t.id, deadline: t.softDeadline || t.deadline });
     });
   });
   if (!available.length) { alert('タスクがありません。'); return; }
@@ -296,13 +292,13 @@ function pickToday() {
     if (!b.deadline) return -1;
     return a.deadline < b.deadline ? -1 : 1;
   });
-  const top = available.slice(0, Math.min(3, available.length));
-  todayPicks = top.map(t => ({ pid: t.pid, tid: t.tid }));
-  save(); renderToday();
-}
+  todayPicks = available.slice(0, Math.min(3, available.length)).map(t => ({ pid: t.pid, tid: t.tid }));
+  localStorage.setItem('taskapp-today', JSON.stringify(todayPicks));
+  renderToday();
+};
 
 // ── INLINE EDIT ───────────────────────────────────────
-function editField(pid, tid, field, el) {
+window.editField = function(pid, tid, field, el) {
   const proj = data.projects.find(p => p.id === pid);
   if (!proj) return;
   const target = tid ? proj.tasks.find(t => t.id === tid) : proj;
@@ -335,7 +331,7 @@ function editField(pid, tid, field, el) {
       if (e.key === 'Escape') { input.value = target[field] || ''; input.blur(); }
     });
   }
-}
+};
 
 // ── TIMER ─────────────────────────────────────────────
 function fmtTime(sec) {
@@ -346,14 +342,10 @@ function fmtTime(sec) {
   return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
 
-function toggleTimer(pid, tid) {
-  if (activeTimer && activeTimer.tid === tid) {
-    pauseTimer();
-  } else {
-    if (activeTimer) pauseTimer();
-    startTimer(pid, tid);
-  }
-}
+window.toggleTimer = function(pid, tid) {
+  if (activeTimer && activeTimer.tid === tid) pauseTimer();
+  else { if (activeTimer) pauseTimer(); startTimer(pid, tid); }
+};
 
 function startTimer(pid, tid) {
   if (!timerMap[tid]) timerMap[tid] = 0;
@@ -362,14 +354,15 @@ function startTimer(pid, tid) {
     timerMap[tid] = Math.floor((Date.now() - startedAt) / 1000);
     const el = document.getElementById(`timer-${tid}`);
     if (el) el.textContent = fmtTime(timerMap[tid]);
-    renderNowWorking();
+    const timeEl = document.getElementById('now-working-time');
+    if (timeEl) timeEl.textContent = fmtTime(timerMap[tid]);
   }, 1000);
   activeTimer = { pid, tid, startedAt, interval };
   renderTimerButtons(tid);
   renderNowWorking();
 }
 
-function pauseTimer() {
+window.pauseTimer = function() {
   if (!activeTimer) return;
   clearInterval(activeTimer.interval);
   timerMap[activeTimer.tid] = Math.floor((Date.now() - activeTimer.startedAt) / 1000);
@@ -377,7 +370,7 @@ function pauseTimer() {
   activeTimer = null;
   renderTimerButtons(prevTid);
   renderNowWorking();
-}
+};
 
 function renderTimerButtons(tid) {
   const row = document.querySelector(`[data-tid="${tid}"]`);
@@ -394,7 +387,6 @@ function renderTimerButtons(tid) {
     if (!display) {
       display = document.createElement('span');
       display.id = `timer-${tid}`;
-      display.className = `timer-display${isActive ? ' running' : ''}`;
       const nameEl = row.querySelector('.task-name');
       nameEl.after(display);
     }
@@ -420,20 +412,16 @@ function renderNowWorking() {
     <div class="now-working-time" id="now-working-time">${fmtTime(elapsed)}</div>
     <button class="now-working-stop" onclick="pauseTimer()">■ 停止</button>
   `;
-  setInterval(() => {
-    const timeEl = document.getElementById('now-working-time');
-    if (timeEl && activeTimer) timeEl.textContent = fmtTime(timerMap[activeTimer.tid] || 0);
-  }, 1000);
 }
 
 // ── VIEW SWITCH ───────────────────────────────────────
-function switchView(name, btn) {
+window.switchView = function(name, btn) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
   document.getElementById(`view-${name}`).classList.add('active');
   btn.classList.add('active');
   if (name === 'archive') renderArchive();
-}
+};
 
 // ── HEADER DATE ───────────────────────────────────────
 function setHeaderDate() {
@@ -450,10 +438,35 @@ function render() {
   renderUpcoming();
 }
 
-// ── INIT ──────────────────────────────────────────────
-document.getElementById('new-proj-name').addEventListener('keydown', e => {
-  if (e.key === 'Enter') addProject();
-});
+// ── AUTH ──────────────────────────────────────────────
+function showApp(user) {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  const avatar = document.getElementById('user-avatar');
+  if (user.photoURL) { avatar.src = user.photoURL; avatar.style.display = 'block'; }
+  setHeaderDate();
+  document.getElementById('new-proj-name').addEventListener('keydown', e => {
+    if (e.key === 'Enter') window.addProject();
+  });
+  render();
+}
 
-setHeaderDate();
-render();
+function showLogin() {
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+}
+
+document.getElementById('login-btn').addEventListener('click', () => loginWithGoogle());
+document.getElementById('logout-btn').addEventListener('click', () => logout());
+
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    currentUid = user.uid;
+    data = await loadUserData(user.uid);
+    showApp(user);
+  } else {
+    currentUid = null;
+    data = { projects: [], archive: [] };
+    showLogin();
+  }
+});
