@@ -92,9 +92,9 @@ function renderProject(p) {
       return `
       <li class="task-row" data-tid="${t.id}" data-pid="${p.id}">
         <input type="checkbox" class="task-check" ${t.done ? 'checked' : ''} onchange="toggleTask('${p.id}','${t.id}',this.checked)" />
-        <span class="task-name${t.done ? ' done' : ''}">${esc(t.name)}</span>
+        <span class="task-name${t.done ? ' done' : ''}" onclick="editTaskName('${p.id}','${t.id}',this)">${esc(t.name)}</span>
         ${timerDisplay}
-        ${t.deadline ? `<span class="task-deadline ${tdlClass}">${fmtDate(t.deadline)}</span>` : ''}
+        <span class="task-deadline ${tdlClass}" onclick="editTaskDeadline('${p.id}','${t.id}',this)" title="締め切りを編集">${t.deadline ? fmtDate(t.deadline) : '<span class="edit-hint">日付</span>'}</span>
         ${timerBtn}
         <button class="task-del" onclick="deleteTask('${p.id}','${t.id}')" title="削除">×</button>
       </li>`;
@@ -103,8 +103,8 @@ function renderProject(p) {
   return `
   <div class="project-block" id="pb-${p.id}">
     <div class="project-header">
-      <span class="project-title">${esc(p.name)}</span>
-      ${dlText ? `<span class="project-deadline ${dlClass}">${dlText}</span>` : ''}
+      <span class="project-title" onclick="editProjectName('${p.id}',this)">${esc(p.name)}</span>
+      <span class="project-deadline ${dlClass}" onclick="editProjectDeadline('${p.id}',this)" title="締め切りを編集">${dlText || '<span class="edit-hint">締め切り</span>'}</span>
       <div class="project-actions">
         <button class="icon-btn del" onclick="deleteProject('${p.id}')" title="削除">Delete</button>
       </div>
@@ -279,6 +279,81 @@ function pickToday() {
   const top = available.slice(0, Math.min(3, available.length));
   todayPicks = top.map(t => ({ pid: t.pid, tid: t.tid }));
   save(); renderToday();
+}
+
+// ── INLINE EDIT ───────────────────────────────────────
+function editProjectName(pid, el) {
+  const proj = data.projects.find(p => p.id === pid);
+  if (!proj) return;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = proj.name;
+  input.className = 'inline-edit';
+  el.replaceWith(input);
+  input.focus(); input.select();
+  const commit = () => {
+    const val = input.value.trim();
+    if (val) proj.name = val;
+    save(); render();
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.value = proj.name; input.blur(); } });
+}
+
+function editProjectDeadline(pid, el) {
+  const proj = data.projects.find(p => p.id === pid);
+  if (!proj) return;
+  const input = document.createElement('input');
+  input.type = 'date';
+  input.value = proj.deadline || '';
+  input.className = 'inline-edit inline-edit-date';
+  el.replaceWith(input);
+  input.focus();
+  const commit = () => {
+    proj.deadline = input.value || null;
+    save(); render();
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('change', () => input.blur());
+  input.addEventListener('keydown', e => { if (e.key === 'Escape') input.blur(); });
+}
+
+function editTaskName(pid, tid, el) {
+  const proj = data.projects.find(p => p.id === pid);
+  const task = proj?.tasks.find(t => t.id === tid);
+  if (!task) return;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = task.name;
+  input.className = 'inline-edit';
+  el.replaceWith(input);
+  input.focus(); input.select();
+  const commit = () => {
+    const val = input.value.trim();
+    if (val) task.name = val;
+    save(); render();
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.value = task.name; input.blur(); } });
+}
+
+function editTaskDeadline(pid, tid, el) {
+  const proj = data.projects.find(p => p.id === pid);
+  const task = proj?.tasks.find(t => t.id === tid);
+  if (!task) return;
+  const input = document.createElement('input');
+  input.type = 'date';
+  input.value = task.deadline || '';
+  input.className = 'inline-edit inline-edit-date';
+  el.replaceWith(input);
+  input.focus();
+  const commit = () => {
+    task.deadline = input.value || null;
+    save(); render();
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('change', () => input.blur());
+  input.addEventListener('keydown', e => { if (e.key === 'Escape') input.blur(); });
 }
 
 // ── TIMER ─────────────────────────────────────────────

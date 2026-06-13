@@ -422,6 +422,37 @@ main {
   color: var(--light);
 }
 
+/* ── INLINE EDIT ── */
+.inline-edit {
+  border: none;
+  border-bottom: 1.5px solid var(--ink);
+  background: none;
+  font-family: var(--sans);
+  font-size: inherit;
+  font-weight: inherit;
+  color: var(--ink);
+  outline: none;
+  padding: 0 2px;
+  width: 100%;
+}
+.inline-edit-date {
+  width: 130px;
+  font-size: 14px;
+  color: var(--mid);
+}
+.edit-hint {
+  font-size: 12px;
+  color: var(--light);
+  opacity: 0;
+  transition: opacity .15s;
+}
+.project-header:hover .edit-hint,
+.task-row:hover .edit-hint { opacity: 1; }
+.task-name { cursor: text; }
+.project-title { cursor: text; }
+.project-deadline { cursor: text; }
+.task-deadline { cursor: text; }
+
 /* ── TIMER BUTTON ── */
 .timer-btn {
   font-size: 11px;
